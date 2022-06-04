@@ -1,26 +1,23 @@
-use serde::Serialize;
 use crate::base::network::Network;
 use crate::base::state::State;
-use crate::base::stats::Stats;
+use crate::games::game::ActionId;
 
 pub trait Process: Sized {
     type NodeStateT;
-    type NodeStatsT: Default;
-    type ReportT : Serialize;
+    const ACTIONS: usize;
+    type CacheT;
 
     fn make_initial_state(&self, rng: &mut impl rand::Rng, network: &Network) -> State<Self>;
 
-    //fn make_stats(&self, network: &Network) -> Self::StatsT;
+    fn init_cache(&self) -> Self::CacheT;
 
     fn node_step<'a>(
         &'a self,
         rng: &mut impl rand::Rng,
-        stats: &mut Self::NodeStatsT,
         node_state: &Self::NodeStateT,
         neighbors: impl Iterator<Item = &'a Self::NodeStateT>,
-    ) -> Self::NodeStateT;
+        cache: &mut Self::CacheT,
+    ) -> (Self::NodeStateT, ActionId);
 
-    fn get_termination_metric(&self, stats: &[Stats<Self>]) -> Option<f32>;
-
-    fn get_report(&self, network: &Network, stats: &[Stats<Self>]) -> Self::ReportT;
+    fn configuration(&self) -> serde_json::Value;
 }

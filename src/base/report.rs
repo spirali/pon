@@ -1,9 +1,11 @@
-use crate::base::process::Process;
 use serde::Serialize;
+use serde_json::Value;
 
-#[derive(Serialize)]
-pub struct RunReport<ProcessT: Process> {
+#[derive(Serialize, Debug)]
+pub struct RunReport {
     pub network: String,
+    pub process: Value,
     pub steps: usize,
-    pub process: ProcessT::ReportT,
+    pub converged: bool,
+    pub avg_policy: Vec<f32>,
 }

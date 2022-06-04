@@ -1,2 +1,3 @@
+pub mod bestresp;
 pub mod game;
-pub mod policy;
+pub mod regmat;
