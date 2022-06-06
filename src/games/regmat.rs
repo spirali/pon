@@ -54,6 +54,10 @@ impl<const ACTIONS: usize> Process for RegretMatchingProcess<ACTIONS> {
         let policy = regret_sum.clamp_negatives().normalize();
         let policy_sum = node_state.policy_sum.add(&policy);
         let action = policy_sum.sample_index(rng);
+        /*println!(
+            "Regret {} -> {}; {} -> {}",
+            node_state.regret_sum, regret_sum, node_state.policy_sum, policy_sum
+        );*/
         (
             PlayerState {
                 action,
@@ -90,7 +94,8 @@ mod tests {
         let payoffs = [[0.0, -1.0, 1.0], [1.0, 0.0, -1.0], [-1.0, 1.0, 0.0]];
         let game =
             RegretMatchingProcess::<3>::new(MatrixGame::new(payoffs, InitialAction::Const(1)));
-        let network = Network::grid(5, 5);
+        //let network = Network::grid(5, 5);
+        let network = Network::line(2);
         let mut simulator = Simulator::new(&config, &network, &game);
         simulator.run();
         let report = simulator.report();

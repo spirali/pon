@@ -1,5 +1,6 @@
 use rand::Rng;
 use std::cmp::max;
+use std::fmt::{Display, Formatter};
 use std::ops::Add;
 
 #[derive(Debug, Clone)]
@@ -31,7 +32,7 @@ impl<const SIZE: usize> FixArray<SIZE> {
         self.0.iter().sum()
     }
 
-    pub fn normalize(&mut self) -> Self {
+    pub fn normalize(&self) -> Self {
         debug_assert!(self.is_finite());
         let sum = self.sum();
         if sum <= 0.0 {
@@ -79,10 +80,55 @@ impl<const SIZE: usize> FixArray<SIZE> {
         }
         let mut value: f32 = rng.gen_range(0.0..sum);
         for i in 0..SIZE - 1 {
-            if self.0[i] < value {
+            if value < self.0[i] {
                 return i;
             }
+            value -= self.0[i];
         }
         return SIZE - 1;
+    }
+}
+
+impl<const SIZE: usize> Display for FixArray<SIZE> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::base::fixarray::FixArray;
+    use approx::assert_abs_diff_eq;
+    use rand::rngs::SmallRng;
+    use rand::SeedableRng;
+
+    impl<const SIZE: usize> FixArray<SIZE> {
+        fn assert_approx_eq(&self, weights: [f32; SIZE]) {
+            self.0.iter().zip(weights).for_each(|(x, y)| {
+                assert_abs_diff_eq!(*x, y, epsilon = 0.01);
+            })
+        }
+    }
+
+    fn sample_check<const SIZE: usize>(weights: [f32; SIZE]) {
+        let mut counts = [0.0; SIZE];
+        let mut rng = SmallRng::seed_from_u64(0b101010001100011101010110001111); // Doc says that SmallRng should enough 1 in seed
+        let f = FixArray::from(weights);
+        const COUNT: usize = 10000;
+        for _i in 0..COUNT {
+            counts[f.sample_index(&mut rng)] += 1.0;
+        }
+        counts.iter_mut().for_each(|x| *x /= COUNT as f32);
+        dbg!(&counts);
+
+        let n = f.normalize();
+        n.assert_approx_eq(counts);
+    }
+
+    #[test]
+    fn test_fixarray_sample() {
+        sample_check([100.0, 100.0, 100.0]);
+        sample_check([10.0, 0.0, 1.0]);
+        sample_check([1.0, 2.0, 3.0]);
     }
 }
