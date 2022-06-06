@@ -4,9 +4,10 @@ use crate::base::state::State;
 use crate::games::game::{ActionId, MatrixGame};
 use rand::distributions::Bernoulli;
 use rand::Rng;
+use serde::Serialize;
 use serde_json::{json, Value};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct PlayerState {
     action: ActionId,
 }

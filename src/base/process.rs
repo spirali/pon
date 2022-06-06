@@ -1,9 +1,10 @@
 use crate::base::network::Network;
 use crate::base::state::State;
 use crate::games::game::ActionId;
+use serde::Serialize;
 
 pub trait Process: Sized {
-    type NodeStateT;
+    type NodeStateT: Serialize;
     const ACTIONS: usize;
     type CacheT;
 

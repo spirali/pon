@@ -7,12 +7,25 @@ use ndarray::{stack, Array1, Axis};
 use ordered_float::OrderedFloat;
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
+use serde::Serialize;
+use std::fs::File;
+use std::io::BufWriter;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 pub struct SimulatorConfig {
     bootstrap_steps: usize,
     window_steps: usize,
     max_windows: usize,
     termination_threshold: f32,
+    progress_path: Option<PathBuf>,
+    report_step: usize,
+}
+
+#[derive(Serialize)]
+pub struct ProgressFrame<'a, ProcessT: Process> {
+    step: usize,
+    states: &'a [ProcessT::NodeStateT],
 }
 
 impl SimulatorConfig {
@@ -22,6 +35,8 @@ impl SimulatorConfig {
             window_steps: 200,
             max_windows: 1000,
             termination_threshold: 0.05,
+            progress_path: None,
+            report_step: 1,
         }
     }
 
@@ -36,6 +51,12 @@ impl SimulatorConfig {
     }
     pub fn set_termination_threshold(&mut self, termination_threshold: f32) {
         self.termination_threshold = termination_threshold;
+    }
+    pub fn set_progress_path(&mut self, progress_path: &Path) {
+        self.progress_path = Some(progress_path.into());
+    }
+    pub fn set_report_step(&mut self, report_step: usize) {
+        self.report_step = report_step;
     }
 }
 
@@ -53,8 +74,10 @@ pub struct Simulator<'a, ProcessT: Process> {
 
     avg_policies: Vec<Array1<f32>>,
     converged: bool,
+    step: usize,
 
     config: &'a SimulatorConfig,
+    progress_file: Option<BufWriter<File>>,
 }
 
 impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
@@ -63,6 +86,11 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
         let state = process.make_initial_state(&mut rng, network);
         assert_eq!(state.node_count(), network.node_count());
 
+        let progress_file = config
+            .progress_path
+            .as_ref()
+            .map(|path| BufWriter::new(File::create(path).unwrap()));
+
         Simulator {
             network,
             process,
@@ -70,15 +98,30 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
             state,
             avg_policies: vec![],
             converged: false,
+            step: 0,
             config,
+            progress_file,
+        }
+    }
+
+    fn write_progress(&mut self) {
+        if let Some(file) = &mut self.progress_file {
+            if self.step % self.config.report_step == 0 {
+                let frame = ProgressFrame::<ProcessT> {
+                    step: self.step,
+                    states: &self.state.node_states(),
+                };
+                writeln!(file, "{}", serde_json::to_string(&frame).unwrap());
+            }
         }
     }
 
     pub(crate) fn step(&mut self, stats: &mut Monitor, cache: &mut ProcessT::CacheT) {
+        stats.new_step();
+        self.step += 1;
         let graph = self.network.graph();
         let node_states = self.state.node_states();
         let mut idx = 0u32;
-        stats.new_step();
         let new_node_states: Vec<_> = node_states
             .iter()
             .map(|node_state| {
@@ -93,7 +136,8 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
                 new_state
             })
             .collect();
-        self.state = State::new(new_node_states)
+        self.state = State::new(new_node_states);
+        self.write_progress();
     }
 
     pub(crate) fn new_stats(&self) -> Monitor {
@@ -111,6 +155,7 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
     }
 
     pub fn run(&mut self) -> bool {
+        self.write_progress();
         let mut stats = self.new_stats();
         let mut cache = self.process.init_cache();
         for _i in 0..self.config.bootstrap_steps {

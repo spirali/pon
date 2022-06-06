@@ -1,17 +1,11 @@
 use rand::Rng;
+use serde::{Serialize, Serializer};
 use std::cmp::max;
 use std::fmt::{Display, Formatter};
 use std::ops::Add;
 
 #[derive(Debug, Clone)]
 pub struct FixArray<const SIZE: usize>([f32; SIZE]);
-
-impl<const SIZE: usize> FixArray<SIZE> {
-    #[inline]
-    pub fn from(values: [f32; SIZE]) -> Self {
-        FixArray(values)
-    }
-}
 
 impl<const SIZE: usize> Default for FixArray<SIZE> {
     fn default() -> Self {
@@ -20,6 +14,22 @@ impl<const SIZE: usize> Default for FixArray<SIZE> {
 }
 
 impl<const SIZE: usize> FixArray<SIZE> {
+    #[inline]
+    pub fn from(values: [f32; SIZE]) -> Self {
+        FixArray(values)
+    }
+
+    pub fn sub_scalar(&self, value: f32) -> FixArray<SIZE> {
+        let mut result = self.0.clone();
+        result.iter_mut().for_each(|x| *x -= value);
+        FixArray::from(result)
+    }
+
+    #[inline]
+    pub fn get(&self, index: usize) -> f32 {
+        self.0[index]
+    }
+
     pub fn add(&self, other: &Self) -> Self {
         let mut result = [0.0; SIZE];
         for i in 0..SIZE {
@@ -92,6 +102,15 @@ impl<const SIZE: usize> FixArray<SIZE> {
 impl<const SIZE: usize> Display for FixArray<SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.0)
+    }
+}
+
+impl<const SIZE: usize> Serialize for FixArray<SIZE> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.0.serialize(serializer)
     }
 }
 

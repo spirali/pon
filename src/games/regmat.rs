@@ -5,9 +5,10 @@ use crate::base::state::State;
 use crate::games::game::{ActionId, MatrixGame};
 use rand::distributions::{Bernoulli, WeightedIndex};
 use rand::Rng;
+use serde::Serialize;
 use serde_json::{json, Value};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct PlayerState<const ACTIONS: usize> {
     action: ActionId,
     regret_sum: FixArray<ACTIONS>,
@@ -50,7 +51,8 @@ impl<const ACTIONS: usize> Process for RegretMatchingProcess<ACTIONS> {
         _cache: &mut (),
     ) -> (PlayerState<ACTIONS>, ActionId) {
         let payoffs = self.game.payoffs_sums(neighbors.map(|s| s.action));
-        let regret_sum = node_state.regret_sum.add(&payoffs);
+        let regret = payoffs.sub_scalar(payoffs.get(node_state.action));
+        let regret_sum = node_state.regret_sum.add(&regret);
         let policy = regret_sum.clamp_negatives().normalize();
         let policy_sum = node_state.policy_sum.add(&policy);
         let action = policy_sum.sample_index(rng);
@@ -83,17 +85,20 @@ mod tests {
     use crate::games::game::{InitialAction, MatrixGame};
     use crate::games::regmat::RegretMatchingProcess;
     use approx::assert_abs_diff_eq;
+    use std::path::Path;
 
     #[test]
     fn test_regret_matching_game_rock_paper_scissors() {
         let mut config = SimulatorConfig::new();
-        config.set_termination_threshold(0.03);
-        config.set_window_steps(1000);
+        config.set_termination_threshold(0.003);
+        config.set_window_steps(10000);
         config.set_max_windows(100);
+        config.set_progress_path(Path::new("/tmp/p"));
+        config.set_report_step(200);
 
         let payoffs = [[0.0, -1.0, 1.0], [1.0, 0.0, -1.0], [-1.0, 1.0, 0.0]];
         let game =
-            RegretMatchingProcess::<3>::new(MatrixGame::new(payoffs, InitialAction::Const(1)));
+            RegretMatchingProcess::<3>::new(MatrixGame::new(payoffs, InitialAction::Const(0)));
         //let network = Network::grid(5, 5);
         let network = Network::line(2);
         let mut simulator = Simulator::new(&config, &network, &game);
