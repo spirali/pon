@@ -8,7 +8,7 @@ edition = "2021"
 # hashbrown = { version = "0.12", features = ["inline-more"], default-features = false }
 petgraph = "0.6.2"
 # hdf5 = "0.8.1"
-ndarray = "0.15"
+ndarray = {version = "0.15", features = ["serde"] }
 rand = { version = "0.8.5", features = ["small_rng"] }
 ordered-float = "3.0"
 approx = "0.5.1"

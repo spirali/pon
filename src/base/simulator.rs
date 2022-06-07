@@ -18,14 +18,28 @@ pub struct SimulatorConfig {
     window_steps: usize,
     max_windows: usize,
     termination_threshold: f32,
-    progress_path: Option<PathBuf>,
-    report_step: usize,
+    trace_path: Option<PathBuf>,
+    report_state_step: usize,
 }
 
 #[derive(Serialize)]
-pub struct ProgressFrame<'a, ProcessT: Process> {
+#[serde(tag = "evt")]
+pub enum TraceFrame<'a, ProcessT: Process> {
+    State(StateTraceFrame<'a, ProcessT::NodeStateT>),
+    Window(WindowTraceFrame<'a>),
+}
+
+#[derive(Serialize)]
+pub struct StateTraceFrame<'a, NodeStateT: Serialize> {
     step: usize,
-    states: &'a [ProcessT::NodeStateT],
+    states: &'a [NodeStateT],
+}
+
+#[derive(Serialize)]
+pub struct WindowTraceFrame<'a> {
+    step: usize,
+    actions: usize,
+    counts: &'a [u32],
 }
 
 impl SimulatorConfig {
@@ -35,8 +49,8 @@ impl SimulatorConfig {
             window_steps: 200,
             max_windows: 1000,
             termination_threshold: 0.05,
-            progress_path: None,
-            report_step: 1,
+            trace_path: None,
+            report_state_step: 0,
         }
     }
 
@@ -52,11 +66,11 @@ impl SimulatorConfig {
     pub fn set_termination_threshold(&mut self, termination_threshold: f32) {
         self.termination_threshold = termination_threshold;
     }
-    pub fn set_progress_path(&mut self, progress_path: &Path) {
-        self.progress_path = Some(progress_path.into());
+    pub fn set_trace_path(&mut self, trace_path: &Path) {
+        self.trace_path = Some(trace_path.into());
     }
-    pub fn set_report_step(&mut self, report_step: usize) {
-        self.report_step = report_step;
+    pub fn set_report_state_step(&mut self, report_step: usize) {
+        self.report_state_step = report_step;
     }
 }
 
@@ -77,7 +91,7 @@ pub struct Simulator<'a, ProcessT: Process> {
     step: usize,
 
     config: &'a SimulatorConfig,
-    progress_file: Option<BufWriter<File>>,
+    trace_file: Option<BufWriter<File>>,
 }
 
 impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
@@ -86,8 +100,8 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
         let state = process.make_initial_state(&mut rng, network);
         assert_eq!(state.node_count(), network.node_count());
 
-        let progress_file = config
-            .progress_path
+        let trace_file = config
+            .trace_path
             .as_ref()
             .map(|path| BufWriter::new(File::create(path).unwrap()));
 
@@ -100,19 +114,30 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
             converged: false,
             step: 0,
             config,
-            progress_file,
+            trace_file,
         }
     }
 
-    fn write_progress(&mut self) {
-        if let Some(file) = &mut self.progress_file {
-            if self.step % self.config.report_step == 0 {
-                let frame = ProgressFrame::<ProcessT> {
+    fn write_state_trace(&mut self) {
+        if let Some(file) = &mut self.trace_file {
+            if self.config.report_state_step > 0 && self.step % self.config.report_state_step == 0 {
+                let frame = TraceFrame::<'_, ProcessT>::State(StateTraceFrame {
                     step: self.step,
-                    states: &self.state.node_states(),
-                };
-                writeln!(file, "{}", serde_json::to_string(&frame).unwrap());
+                    states: self.state.node_states(),
+                });
+                writeln!(file, "{}", serde_json::to_string(&frame).unwrap()).unwrap()
             }
+        }
+    }
+
+    fn write_window_trace(&mut self, monitor: &Monitor) {
+        if let Some(file) = &mut self.trace_file {
+            let frame = TraceFrame::<'_, ProcessT>::Window(WindowTraceFrame {
+                step: self.step,
+                actions: monitor.counts().ncols(),
+                counts: monitor.counts().as_slice().unwrap(),
+            });
+            writeln!(file, "{}", serde_json::to_string(&frame).unwrap()).unwrap()
         }
     }
 
@@ -137,10 +162,10 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
             })
             .collect();
         self.state = State::new(new_node_states);
-        self.write_progress();
+        self.write_state_trace();
     }
 
-    pub(crate) fn new_stats(&self) -> Monitor {
+    pub(crate) fn new_monitor(&self) -> Monitor {
         Monitor::new(self.network, ProcessT::ACTIONS)
     }
 
@@ -155,19 +180,21 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
     }
 
     pub fn run(&mut self) -> bool {
-        self.write_progress();
-        let mut stats = self.new_stats();
+        self.write_state_trace();
+        let mut monitor = self.new_monitor();
         let mut cache = self.process.init_cache();
         for _i in 0..self.config.bootstrap_steps {
-            self.step(&mut stats, &mut cache);
+            self.step(&mut monitor, &mut cache);
         }
-        drop(stats);
+        self.write_window_trace(&monitor);
+        drop(monitor);
         for _j in 0..self.config.max_windows {
-            let mut stats = self.new_stats();
+            let mut monitor = self.new_monitor();
             for _i in 0..self.config.window_steps {
-                self.step(&mut stats, &mut cache);
+                self.step(&mut monitor, &mut cache);
             }
-            self.avg_policies.push(stats.avg_policy());
+            self.write_window_trace(&monitor);
+            self.avg_policies.push(monitor.avg_policy());
             let metric = self.get_termination_metric();
             //dbg!(&metric);
             if metric

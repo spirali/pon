@@ -35,14 +35,12 @@ impl<const ACTIONS: usize> Process for BestResponseProcess<ACTIONS> {
     type CacheT = ();
 
     fn make_initial_state(&self, rng: &mut impl Rng, network: &Network) -> State<Self> {
-        State::new_by(&network, || PlayerState {
+        State::new_by(network, || PlayerState {
             action: self.game.make_initial_action(rng),
         })
     }
 
-    fn init_cache(&self) -> Self::CacheT {
-        ()
-    }
+    fn init_cache(&self) -> Self::CacheT {}
 
     fn node_step<'a>(
         &'a self,
@@ -91,7 +89,7 @@ mod tests {
             assert_eq!(s.action, 1);
         }
 
-        let mut stats = simulator.new_stats();
+        let mut stats = simulator.new_monitor();
         simulator.step(&mut stats, &mut ());
 
         assert_eq!(simulator.state().node_states().len(), 2);

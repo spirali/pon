@@ -3,7 +3,6 @@ use crate::base::network::Network;
 use crate::base::process::Process;
 use crate::base::state::State;
 use crate::games::game::{ActionId, MatrixGame};
-use rand::distributions::{Bernoulli, WeightedIndex};
 use rand::Rng;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -32,16 +31,14 @@ impl<const ACTIONS: usize> Process for RegretMatchingProcess<ACTIONS> {
     type CacheT = ();
 
     fn make_initial_state(&self, rng: &mut impl Rng, network: &Network) -> State<Self> {
-        State::new_by(&network, || PlayerState {
+        State::new_by(network, || PlayerState {
             action: self.game.make_initial_action(rng),
             regret_sum: FixArray::default(),
             policy_sum: FixArray::default(),
         })
     }
 
-    fn init_cache(&self) -> Self::CacheT {
-        ()
-    }
+    fn init_cache(&self) -> Self::CacheT {}
 
     fn node_step<'a>(
         &'a self,
@@ -93,8 +90,8 @@ mod tests {
         config.set_termination_threshold(0.003);
         config.set_window_steps(10000);
         config.set_max_windows(100);
-        config.set_progress_path(Path::new("/tmp/p"));
-        config.set_report_step(200);
+        config.set_trace_path(Path::new("/tmp/p"));
+        config.set_report_state_step(200);
 
         let payoffs = [[0.0, -1.0, 1.0], [1.0, 0.0, -1.0], [-1.0, 1.0, 0.0]];
         let game =

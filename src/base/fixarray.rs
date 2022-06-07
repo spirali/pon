@@ -1,8 +1,6 @@
 use rand::Rng;
 use serde::{Serialize, Serializer};
-use std::cmp::max;
 use std::fmt::{Display, Formatter};
-use std::ops::Add;
 
 #[derive(Debug, Clone)]
 pub struct FixArray<const SIZE: usize>([f32; SIZE]);
@@ -20,7 +18,7 @@ impl<const SIZE: usize> FixArray<SIZE> {
     }
 
     pub fn sub_scalar(&self, value: f32) -> FixArray<SIZE> {
-        let mut result = self.0.clone();
+        let mut result = self.0;
         result.iter_mut().for_each(|x| *x -= value);
         FixArray::from(result)
     }
@@ -95,7 +93,7 @@ impl<const SIZE: usize> FixArray<SIZE> {
             }
             value -= self.0[i];
         }
-        return SIZE - 1;
+        SIZE - 1
     }
 }
 

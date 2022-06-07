@@ -15,6 +15,10 @@ impl Monitor {
         }
     }
 
+    pub fn counts(&self) -> &Array2<u32> {
+        &self.action_counts
+    }
+
     pub fn steps(&self) -> usize {
         self.steps
     }
