@@ -1,7 +1,7 @@
-use crate::base::network::Network;
-use crate::base::process::Process;
-use crate::base::state::State;
 use crate::games::game::{ActionId, MatrixGame};
+use crate::process::network::Network;
+use crate::process::process::Process;
+use crate::process::state::State;
 use rand::distributions::Bernoulli;
 use rand::Rng;
 use serde::Serialize;
@@ -68,11 +68,12 @@ impl<const ACTIONS: usize> Process for BestResponseProcess<ACTIONS> {
 
 #[cfg(test)]
 mod tests {
-    use crate::base::network::Network;
-    use crate::base::simulator::{Simulator, SimulatorConfig};
     use crate::games::bestresp::BestResponseProcess;
     use crate::games::game::{InitialAction, MatrixGame};
+    use crate::process::network::Network;
+    use crate::process::simulator::{Simulator, SimulatorConfig};
     use approx::assert_abs_diff_eq;
+    use ndarray::Axis;
 
     #[test]
     fn test_game_simple() {
@@ -82,15 +83,14 @@ mod tests {
         );
         let network = Network::line(2);
         let simulator = SimulatorConfig::new();
-        let mut simulator = Simulator::new(&simulator, &network, &game);
+        let mut simulator = Simulator::new(&simulator, None, &network, &game);
 
         assert_eq!(simulator.state().node_states().len(), 2);
         for s in simulator.state().node_states() {
             assert_eq!(s.action, 1);
         }
 
-        let mut stats = simulator.new_monitor();
-        simulator.step(&mut stats, &mut ());
+        simulator.step(&mut ());
 
         assert_eq!(simulator.state().node_states().len(), 2);
         for s in simulator.state().node_states() {
@@ -101,12 +101,12 @@ mod tests {
     #[test]
     fn test_game_convergence() {
         let game = BestResponseProcess::new(
-            MatrixGame::new([[0.0, 0.0], [0.0, 1.0]], InitialAction::Random),
+            MatrixGame::new([[0.0, 0.0], [0.0, 1.0]], InitialAction::Uniform),
             0.9,
         );
         let network = Network::grid(5, 5);
         let config = SimulatorConfig::new();
-        let mut simulator = Simulator::new(&config, &network, &game);
+        let mut simulator = Simulator::new(&config, None, &network, &game);
 
         assert_eq!(simulator.state().node_states().len(), 25);
         assert!(simulator
@@ -124,11 +124,18 @@ mod tests {
 
         let report = simulator.report();
         dbg!(&report);
-        assert_eq!(report.steps, 1000);
-        let avg_policy = &report.avg_policy;
-        assert_eq!(avg_policy.len(), 2);
-        assert_abs_diff_eq!(avg_policy[0] + avg_policy[1], 1.0, epsilon = 0.00001);
-        assert_abs_diff_eq!(avg_policy[1], 0.95, epsilon = 0.01);
+        let avg_policy = report.avg_policy;
+        /*assert_eq!(avg_policy.len(), 2);*/
+        assert_abs_diff_eq!(
+            (&avg_policy.column(0) + &avg_policy.column(1))
+                .mean()
+                .unwrap(),
+            1.0,
+            epsilon = 0.00001
+        );
+        for i in 0..25 {
+            assert_abs_diff_eq!(avg_policy[(i, 1)], 0.95, epsilon = 0.01);
+        }
     }
 
     #[test]
@@ -142,18 +149,21 @@ mod tests {
         let game =
             BestResponseProcess::<3>::new(MatrixGame::new(payoffs, InitialAction::Const(0)), 0.9);
         let network = Network::grid(5, 5);
-        let mut simulator = Simulator::new(&config, &network, &game);
+        let mut simulator = Simulator::new(&config, None, &network, &game);
         simulator.run();
         let report = simulator.report();
-        let avg_policy = &report.avg_policy;
-        assert_eq!(avg_policy.len(), 3);
+        let avg_policy = report.avg_policy;
+        //assert_eq!(avg_policy.len(), 3);
         assert_abs_diff_eq!(
-            avg_policy[0] + avg_policy[1] + avg_policy[2],
+            (&avg_policy.column(0) + &avg_policy.column(1) + &avg_policy.column(2))
+                .mean()
+                .unwrap(),
             1.0,
             epsilon = 0.00001
         );
-        assert_abs_diff_eq!(avg_policy[0], 0.33, epsilon = 0.1);
-        assert_abs_diff_eq!(avg_policy[1], 0.33, epsilon = 0.1);
-        assert_abs_diff_eq!(avg_policy[2], 0.33, epsilon = 0.1);
+        let a = avg_policy.mean_axis(Axis(0)).unwrap();
+        assert_abs_diff_eq!(a[0], 0.33, epsilon = 0.1);
+        assert_abs_diff_eq!(a[1], 0.33, epsilon = 0.1);
+        assert_abs_diff_eq!(a[2], 0.33, epsilon = 0.1);
     }
 }

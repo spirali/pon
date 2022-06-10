@@ -1,6 +1,6 @@
-use crate::base::network::Network;
-use crate::base::state::State;
 use crate::games::game::ActionId;
+use crate::process::network::Network;
+use crate::process::state::State;
 use serde::Serialize;
 
 pub trait Process: Sized {

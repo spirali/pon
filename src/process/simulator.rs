@@ -1,11 +1,10 @@
-use crate::base::monitor::Monitor;
-use crate::base::network::Network;
-use crate::base::process::Process;
-use crate::base::report::RunReport;
-use crate::base::state::State;
-use ndarray::{stack, Array1, Axis};
-use ordered_float::OrderedFloat;
-use rand::rngs::SmallRng;
+use crate::process::network::Network;
+use crate::process::process::Process;
+use crate::process::report::RunReport;
+use crate::process::state::State;
+use crate::process::utils::max_of_array;
+use ndarray::{Array2, Axis};
+use rand::rngs::{SmallRng, ThreadRng};
 use rand::SeedableRng;
 use serde::Serialize;
 use std::fs::File;
@@ -39,16 +38,16 @@ pub struct StateTraceFrame<'a, NodeStateT: Serialize> {
 pub struct WindowTraceFrame<'a> {
     step: usize,
     actions: usize,
-    counts: &'a [u32],
+    counts: &'a [u64],
 }
 
 impl SimulatorConfig {
     pub fn new() -> Self {
         SimulatorConfig {
-            bootstrap_steps: 300,
+            bootstrap_steps: 5000,
             window_steps: 200,
             max_windows: 1000,
-            termination_threshold: 0.05,
+            termination_threshold: 0.001,
             trace_path: None,
             report_state_step: 0,
         }
@@ -84,9 +83,11 @@ pub struct Simulator<'a, ProcessT: Process> {
     network: &'a Network,
     process: &'a ProcessT,
     rng: SmallRng,
+    //rng: ThreadRng,
     state: State<ProcessT>,
 
-    avg_policies: Vec<Array1<f32>>,
+    action_counts: Array2<u64>,
+    last_policies: Array2<f32>,
     converged: bool,
     step: usize,
 
@@ -95,8 +96,18 @@ pub struct Simulator<'a, ProcessT: Process> {
 }
 
 impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
-    pub fn new(config: &'a SimulatorConfig, network: &'a Network, process: &'a ProcessT) -> Self {
-        let mut rng = SmallRng::seed_from_u64(0b1110110001110101011000111101); // Doc says that SmallRng should enough 1 in seed
+    pub fn new(
+        config: &'a SimulatorConfig,
+        outer_rng: Option<&mut ThreadRng>,
+        network: &'a Network,
+        process: &'a ProcessT,
+    ) -> Self {
+        let mut rng = outer_rng
+            .map(|r| SmallRng::from_rng(r).unwrap())
+            .unwrap_or_else(|| {
+                SmallRng::seed_from_u64(0b1110110001110101011000111101) // Doc says that SmallRng should enough 1 in seed
+                                                                        //let mut rng = rand::thread_rng();
+            });
         let state = process.make_initial_state(&mut rng, network);
         assert_eq!(state.node_count(), network.node_count());
 
@@ -110,7 +121,8 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
             process,
             rng,
             state,
-            avg_policies: vec![],
+            action_counts: Array2::zeros((network.node_count(), ProcessT::ACTIONS)),
+            last_policies: Array2::zeros((network.node_count(), ProcessT::ACTIONS)),
             converged: false,
             step: 0,
             config,
@@ -130,19 +142,18 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
         }
     }
 
-    fn write_window_trace(&mut self, monitor: &Monitor) {
+    fn write_window_trace(&mut self) {
         if let Some(file) = &mut self.trace_file {
             let frame = TraceFrame::<'_, ProcessT>::Window(WindowTraceFrame {
                 step: self.step,
-                actions: monitor.counts().ncols(),
-                counts: monitor.counts().as_slice().unwrap(),
+                actions: self.action_counts.ncols(),
+                counts: self.action_counts.as_slice().unwrap(),
             });
             writeln!(file, "{}", serde_json::to_string(&frame).unwrap()).unwrap()
         }
     }
 
-    pub(crate) fn step(&mut self, stats: &mut Monitor, cache: &mut ProcessT::CacheT) {
-        stats.new_step();
+    pub(crate) fn step(&mut self, cache: &mut ProcessT::CacheT) {
         self.step += 1;
         let graph = self.network.graph();
         let node_states = self.state.node_states();
@@ -156,7 +167,7 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
                 let (new_state, action) =
                     self.process
                         .node_step(&mut self.rng, node_state, neighbors, cache);
-                stats.record_action(idx, action);
+                self.action_counts[(idx as usize, action)] += 1;
                 idx += 1;
                 new_state
             })
@@ -165,42 +176,37 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
         self.write_state_trace();
     }
 
-    pub(crate) fn new_monitor(&self) -> Monitor {
-        Monitor::new(self.network, ProcessT::ACTIONS)
-    }
-
     pub fn report(&self) -> RunReport {
         RunReport {
-            network: self.network.name().to_string(),
-            process: self.process.configuration(),
-            steps: self.avg_policies.len() * self.config.window_steps,
+            steps: self.step,
             converged: self.converged,
-            avg_policy: self.avg_policies.last().unwrap().to_vec(),
+            avg_policy: self.last_policies.clone(),
         }
+    }
+
+    pub fn reset_counts(&mut self) {
+        self.action_counts.fill(0);
+    }
+
+    pub fn compute_policies(&self) -> Array2<f32> {
+        let sums = self.action_counts.sum_axis(Axis(1)).mapv(|x| x as f32);
+        self.action_counts.mapv(|x| x as f32) / sums.insert_axis(Axis(1))
     }
 
     pub fn run(&mut self) -> bool {
         self.write_state_trace();
-        let mut monitor = self.new_monitor();
         let mut cache = self.process.init_cache();
         for _i in 0..self.config.bootstrap_steps {
-            self.step(&mut monitor, &mut cache);
+            self.step(&mut cache);
         }
-        self.write_window_trace(&monitor);
-        drop(monitor);
+        self.write_window_trace();
+        self.reset_counts();
         for _j in 0..self.config.max_windows {
-            let mut monitor = self.new_monitor();
             for _i in 0..self.config.window_steps {
-                self.step(&mut monitor, &mut cache);
+                self.step(&mut cache);
             }
-            self.write_window_trace(&monitor);
-            self.avg_policies.push(monitor.avg_policy());
-            let metric = self.get_termination_metric();
-            //dbg!(&metric);
-            if metric
-                .map(|x| x < self.config.termination_threshold)
-                .unwrap_or(false)
-            {
+            self.write_window_trace();
+            if self.check_termination() {
                 self.converged = true;
                 return true;
             }
@@ -208,22 +214,11 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
         false
     }
 
-    fn get_termination_metric(&self) -> Option<f32> {
-        const SUFFIX_SIZE: usize = 4;
-        if self.avg_policies.len() < SUFFIX_SIZE + 1 {
-            return None;
-        }
-        let mut it = self.avg_policies.iter().rev();
-        let last: &Array1<f32> = it.next().unwrap();
-        let prevs: Vec<_> = it.take(SUFFIX_SIZE).map(|x| x.view()).collect();
-        let prev_avg_policy: Array1<f32> =
-            stack(Axis(0), &prevs).unwrap().mean_axis(Axis(0)).unwrap();
-        let max_diff = (prev_avg_policy - last)
-            .iter()
-            .map(|x| OrderedFloat::from(x.abs()))
-            .max()
-            .unwrap();
-        Some(max_diff.into_inner())
+    fn check_termination(&mut self) -> bool {
+        let policies = self.compute_policies();
+        let v = max_of_array(&policies - &self.last_policies);
+        self.last_policies = policies;
+        v < self.config.termination_threshold
     }
 
     pub fn state(&mut self) -> &State<ProcessT> {

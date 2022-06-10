@@ -2,7 +2,7 @@ use rand::Rng;
 use serde::{Serialize, Serializer};
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FixArray<const SIZE: usize>([f32; SIZE]);
 
 impl<const SIZE: usize> Default for FixArray<SIZE> {
@@ -17,9 +17,17 @@ impl<const SIZE: usize> FixArray<SIZE> {
         FixArray(values)
     }
 
+    #[inline]
     pub fn sub_scalar(&self, value: f32) -> FixArray<SIZE> {
         let mut result = self.0;
         result.iter_mut().for_each(|x| *x -= value);
+        FixArray::from(result)
+    }
+
+    #[inline]
+    pub fn add_scalar(&self, value: f32) -> FixArray<SIZE> {
+        let mut result = self.0;
+        result.iter_mut().for_each(|x| *x += value);
         FixArray::from(result)
     }
 
@@ -28,6 +36,12 @@ impl<const SIZE: usize> FixArray<SIZE> {
         self.0[index]
     }
 
+    #[inline]
+    pub fn get_mut(&mut self, index: usize) -> &mut f32 {
+        &mut self.0[index]
+    }
+
+    #[inline]
     pub fn add(&self, other: &Self) -> Self {
         let mut result = [0.0; SIZE];
         for i in 0..SIZE {
@@ -36,6 +50,7 @@ impl<const SIZE: usize> FixArray<SIZE> {
         FixArray::from(result)
     }
 
+    #[inline]
     pub fn sum(&self) -> f32 {
         self.0.iter().sum()
     }
@@ -45,6 +60,19 @@ impl<const SIZE: usize> FixArray<SIZE> {
         let sum = self.sum();
         if sum <= 0.0 {
             return self.clone();
+        }
+        let mut result = self.0;
+        for i in 0..SIZE {
+            result[i] /= sum;
+        }
+        FixArray::from(result)
+    }
+
+    pub fn normalize_to_policy(&self) -> Self {
+        debug_assert!(self.is_finite());
+        let sum = self.sum();
+        if sum <= 0.0 {
+            return FixArray::from([1.0f32 / SIZE as f32; SIZE]);
         }
         let mut result = self.0;
         for i in 0..SIZE {
@@ -114,7 +142,7 @@ impl<const SIZE: usize> Serialize for FixArray<SIZE> {
 
 #[cfg(test)]
 mod tests {
-    use crate::base::fixarray::FixArray;
+    use crate::process::fixarray::FixArray;
     use approx::assert_abs_diff_eq;
     use rand::rngs::SmallRng;
     use rand::SeedableRng;
@@ -147,5 +175,14 @@ mod tests {
         sample_check([100.0, 100.0, 100.0]);
         sample_check([10.0, 0.0, 1.0]);
         sample_check([1.0, 2.0, 3.0]);
+        sample_check([0.45, 0.45, 0.1]);
+    }
+
+    #[test]
+    fn test_clamp() {
+        assert_eq!(
+            FixArray([11.0, -20.0, 0.0, 3.0, -3.0]).clamp_negatives(),
+            FixArray([11.0, 0.0, 0.0, 3.0, 0.0])
+        );
     }
 }

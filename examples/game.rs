@@ -1,7 +1,7 @@
-use pon::base::network::Network;
-use pon::base::simulator::{Simulator, SimulatorConfig};
 use pon::games::bestresp::BestResponseProcess;
 use pon::games::game::{InitialAction, MatrixGame};
+use pon::process::network::Network;
+use pon::process::simulator::{Simulator, SimulatorConfig};
 
 pub fn main() {
     let mut config = SimulatorConfig::new();
@@ -16,7 +16,7 @@ pub fn main() {
         let network = Network::grid(net_size, net_size);
         for prob in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] {
             let game = BestResponseProcess::new(
-                MatrixGame::new(payoffs.clone(), InitialAction::Random),
+                MatrixGame::new(payoffs.clone(), InitialAction::Uniform),
                 prob,
             );
             let mut simulator = Simulator::new(&config, &network, &game);

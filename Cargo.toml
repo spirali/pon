@@ -14,3 +14,12 @@ ordered-float = "3.0"
 approx = "0.5.1"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+rayon = { version = "1.5" }
+itertools = "0.10"
+indicatif = "0.17.0-rc.11"
+jemallocator = { version = "0.5" }
+
+
+#[profile.release]
+#lto = true
+#codegen-units = 1

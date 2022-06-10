@@ -1,5 +1,5 @@
-use crate::base::network::Network;
-use crate::base::process::Process;
+use crate::process::network::Network;
+use crate::process::process::Process;
 
 pub struct State<ProcessT: Process> {
     node_states: Vec<ProcessT::NodeStateT>,
