@@ -153,26 +153,28 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
         }
     }
 
-    pub(crate) fn step(&mut self, cache: &mut ProcessT::CacheT) {
+    pub(crate) fn step(&mut self) {
         self.step += 1;
         let graph = self.network.graph();
         let node_states = self.state.node_states();
+        let last_actions = self.state.last_actions();
         let mut idx = 0u32;
-        let new_node_states: Vec<_> = node_states
+        let (new_node_states, new_actions): (Vec<_>, Vec<_>) = node_states
             .iter()
-            .map(|node_state| {
+            .zip(last_actions)
+            .map(|(node_state, last_action)| {
                 let neighbors = graph
                     .neighbors(idx.into())
-                    .map(|other| &node_states[other.index()]);
+                    .map(|other| last_actions[other.index()]);
                 let (new_state, action) =
                     self.process
-                        .node_step(&mut self.rng, node_state, neighbors, cache);
+                        .node_step(&mut self.rng, node_state, *last_action, neighbors);
                 self.action_counts[(idx as usize, action)] += 1;
                 idx += 1;
-                new_state
+                (new_state, action)
             })
-            .collect();
-        self.state = State::new(new_node_states);
+            .unzip();
+        self.state = State::new(new_node_states, new_actions);
         self.write_state_trace();
     }
 
@@ -195,15 +197,14 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
 
     pub fn run(&mut self) -> bool {
         self.write_state_trace();
-        let mut cache = self.process.init_cache();
         for _i in 0..self.config.bootstrap_steps {
-            self.step(&mut cache);
+            self.step();
         }
         self.write_window_trace();
         self.reset_counts();
         for _j in 0..self.config.max_windows {
             for _i in 0..self.config.window_steps {
-                self.step(&mut cache);
+                self.step();
             }
             self.write_window_trace();
             if self.check_termination() {

@@ -10,8 +10,7 @@ use serde_json::{json, Value};
 
 #[derive(Debug, Serialize)]
 pub struct PlayerState<const ACTIONS: usize> {
-    action: ActionId,
-    regret_sum: FixArray<ACTIONS>,
+    regret_sum: FixArray<f32, ACTIONS>,
 }
 
 #[derive(Debug)]
@@ -24,7 +23,6 @@ impl<const ACTIONS: usize, ActionChooserT: ActionChooser<ACTIONS>>
     RegretMatchingProcess<ACTIONS, ActionChooserT>
 {
     pub fn new(game: MatrixGame<ACTIONS>, action_chooser: ActionChooserT) -> Self {
-        //let distribution = Bernoulli::new(p).unwrap()
         RegretMatchingProcess {
             game,
             action_chooser,
@@ -37,42 +35,35 @@ impl<const ACTIONS: usize, ActionChooserT: ActionChooser<ACTIONS>> Process
 {
     type NodeStateT = PlayerState<ACTIONS>;
     const ACTIONS: usize = ACTIONS;
-    type CacheT = ();
 
     fn make_initial_state(&self, rng: &mut impl Rng, network: &Network) -> State<Self> {
-        State::new_by(network, || PlayerState {
-            action: self.game.make_initial_action(rng),
-            regret_sum: FixArray::default(),
+        State::new_by(network, || {
+            (
+                PlayerState::<ACTIONS> {
+                    regret_sum: FixArray::default(),
+                },
+                self.game.make_initial_action(rng),
+            )
         })
     }
 
-    fn init_cache(&self) -> Self::CacheT {}
-
-    fn node_step<'a>(
-        &'a self,
+    fn node_step(
+        &self,
         rng: &mut impl Rng,
         node_state: &PlayerState<ACTIONS>,
-        neighbors: impl Iterator<Item = &'a PlayerState<ACTIONS>>,
-        _cache: &mut (),
+        last_action: ActionId,
+        neighbors: impl Iterator<Item = ActionId>,
     ) -> (PlayerState<ACTIONS>, ActionId) {
-        let payoffs = self.game.payoffs_sums(neighbors.map(|s| s.action));
-        let regret = payoffs.sub_scalar(payoffs.get(node_state.action));
+        let payoffs = self.game.payoffs_sums(neighbors);
+        let regret = payoffs.sub_scalar(payoffs.get(last_action));
         let regret_sum = node_state.regret_sum.add(&regret);
         let clamped = regret_sum.clamp_negatives();
-        //let policy_sum = node_state.policy_sum.add(&clamped.normalize_to_policy());
-
-        /*let action = if rng.gen_bool(0.9) {
-            clamped.sample_index(rng)
-        } else {
-            rng.gen_range(0..ACTIONS)
-        };*/
         let action = self.action_chooser.choose_action(rng, clamped);
-        //println!("POL {} {}", policy_sum, policy);
         /*println!(
             "Regret {} reg={} r_sum={} p_sum={}",
             node_state.action, regret, regret_sum, policy_sum
         );*/
-        (PlayerState { action, regret_sum }, action)
+        (PlayerState { regret_sum }, action)
     }
 
     fn configuration(&self) -> Value {
@@ -84,10 +75,9 @@ impl<const ACTIONS: usize, ActionChooserT: ActionChooser<ACTIONS>> Process
 
 #[cfg(test)]
 mod tests {
-    use crate::games::bestresp::BestResponseProcess;
     use crate::games::chooser::DirectChooser;
     use crate::games::game::{InitialAction, MatrixGame};
-    use crate::games::regmat::RegretMatchingProcess;
+    use crate::games::regret::RegretMatchingProcess;
     use crate::process::network::Network;
     use crate::process::simulator::{Simulator, SimulatorConfig};
     use approx::assert_abs_diff_eq;
@@ -108,7 +98,6 @@ mod tests {
             MatrixGame::new(payoffs, InitialAction::Const(0)),
             DirectChooser::new(),
         );
-        //let network = Network::grid(5, 5);
         let network = Network::line(2);
         let mut simulator = Simulator::new(&config, None, &network, &game);
         simulator.run();

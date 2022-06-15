@@ -6,18 +6,15 @@ use serde::Serialize;
 pub trait Process: Sized {
     type NodeStateT: Serialize;
     const ACTIONS: usize;
-    type CacheT;
 
     fn make_initial_state(&self, rng: &mut impl rand::Rng, network: &Network) -> State<Self>;
 
-    fn init_cache(&self) -> Self::CacheT;
-
-    fn node_step<'a>(
-        &'a self,
+    fn node_step(
+        &self,
         rng: &mut impl rand::Rng,
         node_state: &Self::NodeStateT,
-        neighbors: impl Iterator<Item = &'a Self::NodeStateT>,
-        cache: &mut Self::CacheT,
+        last_action: ActionId,
+        neighbors: impl Iterator<Item = ActionId>,
     ) -> (Self::NodeStateT, ActionId);
 
     fn configuration(&self) -> serde_json::Value;

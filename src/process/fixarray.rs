@@ -1,44 +1,55 @@
 use rand::Rng;
 use serde::{Serialize, Serializer};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct FixArray<const SIZE: usize>([f32; SIZE]);
+pub struct FixArray<T, const SIZE: usize>([T; SIZE]);
 
-impl<const SIZE: usize> Default for FixArray<SIZE> {
+pub type FloatArray<const SIZE: usize> = FixArray<f32, SIZE>;
+pub type IntArray<const SIZE: usize> = FixArray<u32, SIZE>;
+
+impl<T: Default + Copy, const SIZE: usize> Default for FixArray<T, SIZE> {
     fn default() -> Self {
-        FixArray([0.0f32; SIZE])
+        FixArray([Default::default(); SIZE])
     }
 }
 
-impl<const SIZE: usize> FixArray<SIZE> {
+impl<T: Default + Copy, const SIZE: usize> FixArray<T, SIZE> {
     #[inline]
-    pub fn from(values: [f32; SIZE]) -> Self {
+    pub fn from(values: [T; SIZE]) -> Self {
         FixArray(values)
     }
 
     #[inline]
-    pub fn sub_scalar(&self, value: f32) -> FixArray<SIZE> {
+    pub fn get(&self, index: usize) -> T {
+        self.0[index]
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, index: usize) -> &mut T {
+        &mut self.0[index]
+    }
+}
+
+impl<const SIZE: usize> FixArray<u32, SIZE> {
+    pub fn as_float(&self) -> FloatArray<SIZE> {
+        FloatArray::from(self.0.map(|v| v as f32))
+    }
+}
+
+impl<const SIZE: usize> FixArray<f32, SIZE> {
+    #[inline]
+    pub fn sub_scalar(&self, value: f32) -> FixArray<f32, SIZE> {
         let mut result = self.0;
         result.iter_mut().for_each(|x| *x -= value);
         FixArray::from(result)
     }
 
     #[inline]
-    pub fn add_scalar(&self, value: f32) -> FixArray<SIZE> {
+    pub fn add_scalar(&self, value: f32) -> FixArray<f32, SIZE> {
         let mut result = self.0;
         result.iter_mut().for_each(|x| *x += value);
         FixArray::from(result)
-    }
-
-    #[inline]
-    pub fn get(&self, index: usize) -> f32 {
-        self.0[index]
-    }
-
-    #[inline]
-    pub fn get_mut(&mut self, index: usize) -> &mut f32 {
-        &mut self.0[index]
     }
 
     #[inline]
@@ -108,6 +119,14 @@ impl<const SIZE: usize> FixArray<SIZE> {
         self.0.iter().all(|v| v.is_finite())
     }
 
+    pub fn dot_product(&self, other: &FloatArray<SIZE>) -> f32 {
+        let mut result = 0.0;
+        for i in 0..SIZE {
+            result += self.0[i] * other.0[i];
+        }
+        result
+    }
+
     pub fn sample_index(&self, rng: &mut impl Rng) -> usize {
         debug_assert!(self.is_finite());
         let sum = self.sum();
@@ -125,13 +144,13 @@ impl<const SIZE: usize> FixArray<SIZE> {
     }
 }
 
-impl<const SIZE: usize> Display for FixArray<SIZE> {
+impl<T: Display + Debug, const SIZE: usize> Display for FixArray<T, SIZE> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.0)
     }
 }
 
-impl<const SIZE: usize> Serialize for FixArray<SIZE> {
+impl<T: Serialize, const SIZE: usize> Serialize for FixArray<T, SIZE> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -147,7 +166,7 @@ mod tests {
     use rand::rngs::SmallRng;
     use rand::SeedableRng;
 
-    impl<const SIZE: usize> FixArray<SIZE> {
+    impl<const SIZE: usize> FixArray<f32, SIZE> {
         fn assert_approx_eq(&self, weights: [f32; SIZE]) {
             self.0.iter().zip(weights).for_each(|(x, y)| {
                 assert_abs_diff_eq!(*x, y, epsilon = 0.01);

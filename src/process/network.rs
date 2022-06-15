@@ -1,8 +1,22 @@
 use petgraph::{Graph, Undirected};
+use rand::distributions::{Alphanumeric, Bernoulli};
+use rand::Rng;
+use serde::Serialize;
+use serde_json::json;
 
 pub struct Network {
     graph: Graph<(), (), Undirected>,
     name: String,
+    conf: serde_json::Value,
+}
+
+#[derive(Serialize)]
+pub struct NetworkDescription<'a> {
+    pub name: &'a str,
+    pub nodes: usize,
+    pub edges: usize,
+    #[serde(flatten)]
+    pub conf: &'a serde_json::Value,
 }
 
 impl Network {
@@ -15,14 +29,40 @@ impl Network {
     pub fn line(size: u32) -> Network {
         Network {
             graph: Self::_make_grid(1, size),
-            name: format!("line-{size}"),
+            name: "line".to_string(),
+            conf: serde_json::Value::Null,
         }
     }
 
     pub fn grid(size_x: u32, size_y: u32) -> Network {
         Network {
             graph: Self::_make_grid(size_x, size_y),
-            name: format!("grid-{size_x}-{size_y}"),
+            name: "grid".to_string(),
+            conf: json!({ "x": size_x, "y": size_y }),
+        }
+    }
+
+    pub fn random(rng: &mut impl Rng, n_nodes: u32, prob: f64) -> Network {
+        let mut graph = Graph::new_undirected();
+        let nodes: Vec<_> = (0..n_nodes).map(|_| graph.add_node(())).collect();
+        let dist = Bernoulli::new(prob).unwrap();
+        for (i, n) in nodes.iter().enumerate() {
+            for m in &nodes[i + 1..] {
+                if rng.sample(&dist) {
+                    graph.add_edge(*n, *m, ());
+                }
+            }
+        }
+        let uid: String = rng
+            .sample_iter(&Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect();
+
+        Network {
+            graph,
+            name: "rnd".to_string(),
+            conf: json!({"p": prob, "uid": uid }),
         }
     }
 
@@ -50,6 +90,15 @@ impl Network {
             }
         }
         graph
+    }
+
+    pub fn description(&self) -> NetworkDescription {
+        NetworkDescription {
+            name: &self.name,
+            nodes: self.graph.node_count(),
+            edges: self.graph.edge_count(),
+            conf: &self.conf,
+        }
     }
 
     pub fn name(&self) -> &str {

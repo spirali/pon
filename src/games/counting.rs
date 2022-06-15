@@ -1,74 +1,85 @@
+use crate::games::chooser::ActionChooser;
 use crate::games::game::{ActionId, MatrixGame};
+use crate::process::fixarray::IntArray;
 use crate::process::network::Network;
 use crate::process::process::Process;
 use crate::process::state::State;
-use rand::distributions::Bernoulli;
 use rand::Rng;
 use serde::Serialize;
 use serde_json::{json, Value};
 
 #[derive(Debug, Serialize)]
-pub struct PlayerState {
-    action: ActionId,
+pub struct PlayerState<const ACTIONS: usize> {
+    action_counts: IntArray<ACTIONS>,
 }
 
 #[derive(Debug)]
-pub struct BestResponseProcess<const NACTIONS: usize> {
-    dist_choose_best_resp: Bernoulli,
-    prob_of_best_response: f64,
-    game: MatrixGame<NACTIONS>,
+pub struct ActionCountingProcess<const ACTIONS: usize, ActionChooserT: ActionChooser<ACTIONS>> {
+    game: MatrixGame<ACTIONS>,
+    action_chooser: ActionChooserT,
 }
 
-impl<const ACTIONS: usize> BestResponseProcess<ACTIONS> {
-    pub fn new(game: MatrixGame<ACTIONS>, prob_of_best_response: f64) -> Self {
-        BestResponseProcess {
-            dist_choose_best_resp: Bernoulli::new(prob_of_best_response).unwrap(),
-            prob_of_best_response,
+impl<const ACTIONS: usize, ActionChooserT: ActionChooser<ACTIONS>>
+    ActionCountingProcess<ACTIONS, ActionChooserT>
+{
+    pub fn new(game: MatrixGame<ACTIONS>, action_chooser: ActionChooserT) -> Self {
+        ActionCountingProcess {
             game,
+            action_chooser,
         }
     }
 }
 
-impl<const ACTIONS: usize> Process for BestResponseProcess<ACTIONS> {
-    type NodeStateT = PlayerState;
+impl<const ACTIONS: usize, ActionChooserT: ActionChooser<ACTIONS>> Process
+    for ActionCountingProcess<ACTIONS, ActionChooserT>
+{
+    type NodeStateT = PlayerState<ACTIONS>;
     const ACTIONS: usize = ACTIONS;
-    type CacheT = ();
 
     fn make_initial_state(&self, rng: &mut impl Rng, network: &Network) -> State<Self> {
-        State::new_by(network, || PlayerState {
-            action: self.game.make_initial_action(rng),
+        State::new_by(network, || {
+            (
+                PlayerState::<ACTIONS> {
+                    action_counts: IntArray::default(),
+                },
+                self.game.make_initial_action(rng),
+            )
         })
     }
 
-    fn init_cache(&self) -> Self::CacheT {}
-
-    fn node_step<'a>(
-        &'a self,
+    fn node_step(
+        &self,
         rng: &mut impl Rng,
-        _node_state: &PlayerState,
-        neighbors: impl Iterator<Item = &'a PlayerState>,
-        _cache: &mut (),
-    ) -> (PlayerState, ActionId) {
-        let action = if rng.sample(&self.dist_choose_best_resp) {
-            let payoffs = self.game.payoffs_sums(neighbors.map(|s| s.action));
-            payoffs.argmax() as ActionId
-        } else {
-            rng.gen_range(0..ACTIONS) as ActionId
-        };
-        (PlayerState { action }, action)
+        node_state: &PlayerState<ACTIONS>,
+        _last_action: ActionId,
+        neighbors: impl Iterator<Item = ActionId>,
+    ) -> (PlayerState<ACTIONS>, ActionId) {
+        let mut counts = node_state.action_counts.clone();
+        for action in neighbors {
+            *counts.get_mut(action) += 1;
+        }
+        let probs = counts.as_float().normalize();
+        let payoffs = self.game.expect_payoffs(probs);
+        let action = self.action_chooser.choose_action(rng, payoffs);
+        (
+            PlayerState {
+                action_counts: counts,
+            },
+            action,
+        )
     }
 
     fn configuration(&self) -> Value {
         json!({
             "game": "br",
-            "prob": self.prob_of_best_response
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::games::bestresp::BestResponseProcess;
+    use crate::games::chooser::BestResponseEpsilonError;
+    use crate::games::counting::ActionCountingProcess;
     use crate::games::game::{InitialAction, MatrixGame};
     use crate::process::network::Network;
     use crate::process::simulator::{Simulator, SimulatorConfig};
@@ -77,48 +88,40 @@ mod tests {
 
     #[test]
     fn test_game_simple() {
-        let game = BestResponseProcess::new(
+        let game = ActionCountingProcess::new(
             MatrixGame::new([[1.0, 0.5], [0.5, 0.0]], InitialAction::Const(1)),
-            1.0,
+            BestResponseEpsilonError::new(0.0),
         );
         let network = Network::line(2);
         let simulator = SimulatorConfig::new();
         let mut simulator = Simulator::new(&simulator, None, &network, &game);
 
         assert_eq!(simulator.state().node_states().len(), 2);
-        for s in simulator.state().node_states() {
-            assert_eq!(s.action, 1);
+        for action in simulator.state().last_actions() {
+            assert_eq!(*action, 1);
         }
 
-        simulator.step(&mut ());
+        simulator.step();
 
         assert_eq!(simulator.state().node_states().len(), 2);
-        for s in simulator.state().node_states() {
-            assert_eq!(s.action, 0);
+        for action in simulator.state().last_actions() {
+            assert_eq!(*action, 0);
         }
     }
 
     #[test]
     fn test_game_convergence() {
-        let game = BestResponseProcess::new(
+        let game = ActionCountingProcess::new(
             MatrixGame::new([[0.0, 0.0], [0.0, 1.0]], InitialAction::Uniform),
-            0.9,
+            BestResponseEpsilonError::new(0.1),
         );
         let network = Network::grid(5, 5);
         let config = SimulatorConfig::new();
         let mut simulator = Simulator::new(&config, None, &network, &game);
 
         assert_eq!(simulator.state().node_states().len(), 25);
-        assert!(simulator
-            .state()
-            .node_states()
-            .iter()
-            .any(|s| s.action == 0));
-        assert!(simulator
-            .state()
-            .node_states()
-            .iter()
-            .any(|s| s.action == 1));
+        assert!(simulator.state().last_actions().iter().any(|a| *a == 0));
+        assert!(simulator.state().last_actions().iter().any(|a| *a == 1));
 
         simulator.run();
 
@@ -146,8 +149,10 @@ mod tests {
         config.set_max_windows(100);
 
         let payoffs = [[0.0, -1.0, 1.0], [1.0, 0.0, -1.0], [-1.0, 1.0, 0.0]];
-        let game =
-            BestResponseProcess::<3>::new(MatrixGame::new(payoffs, InitialAction::Const(0)), 0.9);
+        let game = ActionCountingProcess::<3, _>::new(
+            MatrixGame::new(payoffs, InitialAction::Const(0)),
+            BestResponseEpsilonError::new(0.1),
+        );
         let network = Network::grid(5, 5);
         let mut simulator = Simulator::new(&config, None, &network, &game);
         simulator.run();

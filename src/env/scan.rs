@@ -36,7 +36,8 @@ macro_rules! scan {
     ($($rest:tt)*) => {
         use rayon::iter::ParallelIterator;
         let size = pon::size_helper!($($rest)*);
-        let progress_bar = indicatif::ProgressBar::new(size as u64);
+        let mut progress_bar = indicatif::ProgressBar::new(size as u64);
+        progress_bar.set_style(indicatif::ProgressStyle::default_bar().template("[{elapsed_precise}] {wide_bar} {pos}/{len} {eta}").unwrap());
         progress_bar.tick();
         pon::scan_helper! { progress_bar, $($rest)* }
     };
@@ -44,9 +45,6 @@ macro_rules! scan {
 
 #[cfg(test)]
 mod tests {
-    use crate::env::streamer::Streamer;
-    use std::path::Path;
-
     /*#[test]
     fn test_scan() {
         let streamer = Streamer::new(Path::new("/tmp/x")).unwrap();

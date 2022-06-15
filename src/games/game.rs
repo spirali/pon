@@ -1,4 +1,4 @@
-use crate::process::fixarray::FixArray;
+use crate::process::fixarray::{FixArray, FloatArray};
 
 pub type ActionId = usize;
 
@@ -6,7 +6,7 @@ pub type ActionId = usize;
 pub enum InitialAction<const ACTIONS: usize> {
     Const(ActionId),
     Uniform,
-    Distribution(FixArray<ACTIONS>),
+    Distribution(FixArray<f32, ACTIONS>),
 }
 
 #[derive(Debug, Clone)]
@@ -46,9 +46,16 @@ impl<const ACTIONS: usize> MatrixGame<ACTIONS> {
         }
     }
 
-    pub fn payoffs_sums(&self, actions: impl Iterator<Item = ActionId>) -> FixArray<ACTIONS> {
+    pub fn payoffs_sums(&self, actions: impl Iterator<Item = ActionId>) -> FloatArray<ACTIONS> {
         let mut payoffs = [0f32; ACTIONS];
         actions.for_each(|a| self.update_payoffs(&mut payoffs, a));
         FixArray::from(payoffs)
+    }
+
+    pub fn expect_payoffs(&self, opponent_strategy: FloatArray<ACTIONS>) -> FloatArray<ACTIONS> {
+        FloatArray::from(
+            self.payoff_matrix
+                .map(|row| opponent_strategy.dot_product(&FloatArray::from(row))),
+        )
     }
 }
