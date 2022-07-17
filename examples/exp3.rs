@@ -1,8 +1,8 @@
 use ndarray::Axis;
 use pon::env::streamer::Streamer;
 use pon::games::chooser::BestResponseEpsilonError;
+use pon::games::counting::ActionCountingProcess;
 use pon::games::game::{InitialAction, MatrixGame};
-use pon::games::regret::RegretMatchingProcess;
 use pon::process::network::Network;
 use pon::process::simulator::{Simulator, SimulatorConfig};
 use pon::scan;
@@ -31,7 +31,7 @@ pub fn main() {
 
         //[epsilon = Array::linspace(0.4f32, 1.0, 5).to_vec()]
         let epsilon = 0.9;
-        let game = RegretMatchingProcess::new(
+        let game = ActionCountingProcess::new(
             MatrixGame::new(payoffs, InitialAction::Uniform),
             BestResponseEpsilonError::new(epsilon),
         );
