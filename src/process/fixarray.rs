@@ -1,3 +1,4 @@
+use ordered_float::Float;
 use rand::Rng;
 use serde::{Serialize, Serializer};
 use std::fmt::{Debug, Display, Formatter};
@@ -46,7 +47,7 @@ impl<const SIZE: usize> FixArray<f32, SIZE> {
     }
 
     #[inline]
-    pub fn add_scalar(&self, value: f32) -> FixArray<f32, SIZE> {
+    pub fn add_scalar(&self, value: f32) -> FloatArray<SIZE> {
         let mut result = self.0;
         result.iter_mut().for_each(|x| *x += value);
         FixArray::from(result)
@@ -64,6 +65,10 @@ impl<const SIZE: usize> FixArray<f32, SIZE> {
     #[inline]
     pub fn sum(&self) -> f32 {
         self.0.iter().sum()
+    }
+
+    pub fn exp(&self) -> FloatArray<SIZE> {
+        FloatArray::from(self.0.map(|x| x.exp()))
     }
 
     pub fn normalize(&self) -> Self {

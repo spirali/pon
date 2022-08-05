@@ -64,3 +64,12 @@ impl<const ACTIONS: usize> ActionChooser<ACTIONS> for BestResponseEpsilonError {
         }
     }
 }
+
+#[derive(Default)]
+pub struct SoftmaxSample;
+
+impl<const ACTIONS: usize> ActionChooser<ACTIONS> for SoftmaxSample {
+    fn choose_action(&self, rng: &mut impl Rng, payoffs: FloatArray<ACTIONS>) -> ActionId {
+        payoffs.exp().sample_index(rng)
+    }
+}

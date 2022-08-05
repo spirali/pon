@@ -182,6 +182,7 @@ impl<'a, ProcessT: Process> Simulator<'a, ProcessT> {
         RunReport {
             steps: self.step,
             converged: self.converged,
+            //action_counts: self.action_counts,
             avg_policy: self.last_policies.clone(),
         }
     }

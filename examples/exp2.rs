@@ -41,5 +41,4 @@ pub fn main() {
         let result = json!({ "net": network.description(), "epsilon": epsilon, "policy": policy, "steps": report.steps});
         streamer.send(&result);
     }
-    streamer.join();
 }
