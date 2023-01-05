@@ -1,6 +1,7 @@
+use ndarray::Array;
 use ndarray::Axis;
 use pon::env::streamer::Streamer;
-use pon::games::chooser::BestResponseEpsilonError;
+use pon::games::chooser::SoftmaxSample;
 use pon::games::counting::ActionCountingProcess;
 use pon::games::game::{InitialAction, MatrixGame};
 use pon::process::network::Network;
@@ -23,27 +24,26 @@ pub fn main() {
         let stag_payoff = 4.0;
         let payoffs = [[stag_payoff, 1.0], [3.0, 2.0]];
 
-        //[edge_prob = Array::linspace(0.1f64, 0.9, 5).to_vec()]
-        let edge_prob = 0.25;
+        [edge_prob = Array::linspace(0.1f64, 0.8, 10).to_vec()]
         [n_nodes = [32, 64]]
-        [_replication = 0..10]
+        [_replication = 0..16]
         let network = Network::random(&mut thread_rng(), n_nodes, edge_prob);
 
-        //[epsilon = Array::linspace(0.4f32, 1.0, 5).to_vec()]
-        let epsilon = 0.9;
         let game = ActionCountingProcess::new(
             MatrixGame::new(payoffs, InitialAction::Uniform),
-            BestResponseEpsilonError::new(epsilon),
+            SoftmaxSample::default(),
         );
 
-        //[_replication = 0..2]
         let mut rng = thread_rng();
         let mut simulator = Simulator::new(&config, Some(&mut rng), &network, &game);
         simulator.run();
         let report = simulator.report();
         let policy = report.avg_policy.mean_axis(Axis(0)).unwrap().into_raw_vec();
-        let result = json!({ "net": network.description(), "stag_payoff": stag_payoff, "epsilon": epsilon, "policy": policy, "steps": report.steps});
+        let result = json!({
+            "net": network.description(),
+            "stag_payoff": stag_payoff,
+            "policy": policy,
+            "steps": report.steps});
         streamer.send(&result);
     }
-    streamer.join();
 }

@@ -48,7 +48,7 @@ impl Network {
         let dist = Bernoulli::new(prob).unwrap();
         for (i, n) in nodes.iter().enumerate() {
             for m in &nodes[i + 1..] {
-                if rng.sample(&dist) {
+                if rng.sample(dist) {
                     graph.add_edge(*n, *m, ());
                 }
             }

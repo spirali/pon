@@ -35,7 +35,7 @@ impl SamplingEpsilonError {
 
 impl<const ACTIONS: usize> ActionChooser<ACTIONS> for SamplingEpsilonError {
     fn choose_action(&self, rng: &mut impl Rng, payoffs: FloatArray<ACTIONS>) -> ActionId {
-        if rng.sample(&self.error_distribution) {
+        if rng.sample(self.error_distribution) {
             rng.gen_range(0..ACTIONS)
         } else {
             payoffs.sample_index(rng)
@@ -57,7 +57,7 @@ impl BestResponseEpsilonError {
 
 impl<const ACTIONS: usize> ActionChooser<ACTIONS> for BestResponseEpsilonError {
     fn choose_action(&self, rng: &mut impl Rng, payoffs: FloatArray<ACTIONS>) -> ActionId {
-        if rng.sample(&self.error_distribution) {
+        if rng.sample(self.error_distribution) {
             rng.gen_range(0..ACTIONS)
         } else {
             payoffs.argmax()

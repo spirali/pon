@@ -1,4 +1,3 @@
-use ordered_float::Float;
 use rand::Rng;
 use serde::{Serialize, Serializer};
 use std::fmt::{Debug, Display, Formatter};
