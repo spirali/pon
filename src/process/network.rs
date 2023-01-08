@@ -3,6 +3,9 @@ use rand::distributions::{Alphanumeric, Bernoulli};
 use rand::Rng;
 use serde::Serialize;
 use serde_json::json;
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 
 pub struct Network {
     graph: Graph<(), (), Undirected>,
@@ -25,6 +28,22 @@ impl Network {
 
         //todo!()
     }*/
+
+    pub fn load_json(path: &Path) -> Network {
+        let data: Vec<[u32; 2]> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let mut nodes: HashMap<u32, _> = HashMap::new();
+        let mut graph = Graph::new_undirected();
+        for [n1, n2] in data {
+            let node1 = *nodes.entry(n1).or_insert_with(|| graph.add_node(()));
+            let node2 = *nodes.entry(n2).or_insert_with(|| graph.add_node(()));
+            graph.add_edge(node1, node2, ());
+        }
+        Network {
+            graph,
+            name: path.to_string_lossy().to_string(),
+            conf: serde_json::Value::Null,
+        }
+    }
 
     pub fn line(size: u32) -> Network {
         Network {
