@@ -1,0 +1,71 @@
+use std::cmp::max;
+use std::fmt::Debug;
+use std::sync::Arc;
+use petgraph::{Graph, Undirected};
+use rand::prelude::SmallRng;
+use rand::{Rng, SeedableRng};
+
+pub(crate) type Action = u32;
+pub(crate) type Step = u32;
+pub(crate) type SimGraph = Graph<(), (), Undirected>;
+
+pub(crate) trait Process {
+    type State: Default;
+
+    fn step(&self, rng: &mut impl Rng, state: Self::State, neighbours: impl Iterator<Item=Action>) -> (Self::State, Action);
+}
+
+#[derive(Debug)]
+pub(crate) struct Simulation<'a, P: Process> {
+    graph: &'a SimGraph,
+    process: &'a P,
+    state: Vec<P::State>,
+    actions: Vec<Action>,
+}
+
+pub(crate) struct SimulationResult {
+    pub history: Vec<(u32, Vec<Action>)>
+}
+
+impl<'a, P: Process> Simulation<'a, P> {
+    pub fn new<F: FnMut() -> Action>(graph: &'a SimGraph, process: &'a P, mut init_action: F) -> Self {
+        let state = (0..graph.node_count()).map(|_| P::State::default()).collect();
+        let actions = (0..graph.node_count()).map(|_| init_action()).collect();
+        Simulation {
+            graph,
+            process,
+            state,
+            actions,
+        }
+    }
+
+    pub fn step(&mut self, rng: &mut SmallRng) {
+        let state = std::mem::take(&mut self.state);
+        let mut new_states = Vec::with_capacity(state.len());
+        let mut new_actions = Vec::with_capacity(state.len());
+        let mut idx = 0;
+        for s in state {
+            let neighbors = self.graph
+                .neighbors(idx.into())
+                .map(|other| self.actions[other.index()]);
+            let (new_state, new_action) = self.process.step(rng, s, neighbors);
+            new_states.push(new_state);
+            new_actions.push(new_action);
+            idx += 1;
+        }
+        self.state = new_states;
+        self.actions = new_actions;
+    }
+
+    pub fn run(&mut self, rng: impl Rng, max_steps: usize) -> SimulationResult {
+        let mut small_rng = SmallRng::from_rng(rng).unwrap();
+        let mut history = Vec::new();
+        for s in 0..max_steps {
+            self.step(&mut small_rng);
+            history.push((s as u32, self.actions.clone()))
+        }
+        SimulationResult {
+            history,
+        }
+    }
+}
