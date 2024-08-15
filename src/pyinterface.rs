@@ -1,12 +1,14 @@
 use std::collections::HashMap;
+use std::io::repeat;
 use pyo3::prelude::*;
 use std::sync::Arc;
+use indicatif::{ProgressBar, ProgressIterator};
 use petgraph::algo::dominators::simple_fast;
 use pyo3::exceptions::PyException;
 use pyo3::types::PyDict;
 use rand::{Rng, thread_rng};
 use crate::matrixgame::MatrixGame;
-use crate::simulation::{SimGraph, Simulation, SimulationResult};
+use crate::simulation::{RunConfig, SimGraph, Simulation, RunResult};
 
 #[pyclass]
 #[derive(Clone)]
@@ -17,38 +19,72 @@ struct Graph {
 #[pymethods]
 impl Graph {
     #[new]
-    fn new(n_nodes: u32, edges: Vec<(u32, u32)>) -> PyResult<Self> {
-        if let Some(e) = edges.iter().find(|x| x.0 >= n_nodes || x.1 >= n_nodes) {
+    fn new(n_nodes: u32, edges: Vec<u32>) -> PyResult<Self> {
+        if edges.len() % 2 != 0 {
+            return Err(PyException::new_err(format!("Invalid number of edges: {}", edges.len())))
+        }
+        if let Some(e) = edges.iter().find(|x| **x >= n_nodes) {
             return Err(PyException::new_err(format!("Invalid edge {:?}", e)))
         };
+        let mut graph = SimGraph::new_undirected();
+        for _ in 0..n_nodes {
+            graph.add_node(());
+        }
+        for edge in edges.chunks(2) {
+            graph.add_edge(edge[0].into(), edge[1].into(), ());
+        }
         Ok(Graph {
-            graph: Arc::new(SimGraph::from_edges(edges))
+            graph: Arc::new(graph)
         })
+    }
+
+    fn edges(&self) -> PyResult<Vec<(u32, u32)>> {
+        todo!()
+    }
+}
+
+#[derive(FromPyObject)]
+struct PyRunConfig {
+    max_steps: usize,
+    store_steps: usize,
+}
+
+impl PyRunConfig {
+    fn into_config(self) -> RunConfig {
+        RunConfig {
+            max_steps: self.max_steps,
+            store_steps: self.store_steps,
+        }
     }
 }
 
 
-
-// [[f32; 2]; 2]
 #[pyfunction]
-fn run_matrix_game(payoff_matrix: [[f32; 2]; 2], graphs: Vec<Graph>, max_steps: usize, repeats: usize) -> PyResult<Vec<PyObject>> {
+fn run_matrix_game(payoff_matrix: [[f32; 2]; 2], graphs: Vec<Graph>, config: PyRunConfig, repeats: usize) -> PyResult<Vec<PyObject>> {
     let process = MatrixGame::new(payoff_matrix);
     let mut rng = thread_rng();
-    let mut results: Vec<Vec<SimulationResult>> = graphs.iter().map(|_| Vec::with_capacity(repeats)).collect();
-    for (graph_id, graph) in graphs.into_iter().enumerate() {
-        for _ in 0..repeats {
-            let mut simulation = Simulation::new(&graph.graph, &process, || rng.gen_range(0..2));
-            let sim_result = simulation.run(&mut rng, max_steps);
-            results[graph_id].push(sim_result);
+    let config = config.into_config();
+
+    let mut work = Vec::with_capacity(graphs.len() * repeats);
+    for (graph_idx, g) in graphs.iter().enumerate() {
+        for _r in 0..repeats {
+            work.push((graph_idx, g.graph.as_ref()))
         }
     }
+
+    let results: Vec<(usize, RunResult)> = work.iter().progress_count(work.len() as u64).map(|(graph_idx, graph)| {
+        let mut simulation = Simulation::new(graph, &process, || rng.gen_range(0..2));
+        let sim_result = simulation.run(&mut rng, &config);
+        (*graph_idx, sim_result)
+    }).collect();
+
     Python::with_gil(|py| {
-        Ok(results.into_iter().map(|v| {
-            Ok(v.into_iter().map(|r| {
+        Ok(results.into_iter().map(|(graph_idx, r)| {
                 let mut dict = PyDict::new_bound(py);
+                dict.set_item("graph_idx", graph_idx)?;
                 dict.set_item("history", r.history)?;
-                PyResult::Ok(dict)
-            }).collect::<PyResult<Vec<_>>>()?.to_object(py))
+                dict.set_item("converged", r.converged)?;
+                PyResult::Ok(dict.to_object(py))
         }).collect::<PyResult<Vec<_>>>()?)
     })
 }

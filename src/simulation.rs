@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::Arc;
 use petgraph::{Graph, Undirected};
@@ -23,8 +24,14 @@ pub(crate) struct Simulation<'a, P: Process> {
     actions: Vec<Action>,
 }
 
-pub(crate) struct SimulationResult {
-    pub history: Vec<(u32, Vec<Action>)>
+pub(crate) struct RunResult {
+    pub history: Vec<(u32, Vec<Action>)>,
+    pub converged: bool,
+}
+
+pub(crate) struct RunConfig {
+    pub max_steps: usize,
+    pub store_steps: usize,
 }
 
 impl<'a, P: Process> Simulation<'a, P> {
@@ -39,7 +46,7 @@ impl<'a, P: Process> Simulation<'a, P> {
         }
     }
 
-    pub fn step(&mut self, rng: &mut SmallRng) {
+    pub fn step(&mut self, rng: &mut SmallRng) -> Vec<Action> {
         let state = std::mem::take(&mut self.state);
         let mut new_states = Vec::with_capacity(state.len());
         let mut new_actions = Vec::with_capacity(state.len());
@@ -54,18 +61,36 @@ impl<'a, P: Process> Simulation<'a, P> {
             idx += 1;
         }
         self.state = new_states;
-        self.actions = new_actions;
+        std::mem::replace(&mut self.actions, new_actions)
     }
 
-    pub fn run(&mut self, rng: impl Rng, max_steps: usize) -> SimulationResult {
+    pub fn run(&mut self, rng: impl Rng, config: &RunConfig) -> RunResult {
+        const LAST_CHECK: usize = 10;
         let mut small_rng = SmallRng::from_rng(rng).unwrap();
         let mut history = Vec::new();
-        for s in 0..max_steps {
-            self.step(&mut small_rng);
-            history.push((s as u32, self.actions.clone()))
+        let mut step = 0;
+        let mut last_counter = 0;
+        let mut converged = false;
+        for _ in 0..config.max_steps {
+            if (step % config.store_steps == 0) {
+                history.push((step as u32, self.actions.clone()))
+            }
+            step += 1;
+            let last = self.step(&mut small_rng);
+            if last == self.actions {
+                last_counter += 1;
+                if last_counter >= LAST_CHECK {
+                    converged = true;
+                    break;
+                }
+            } else {
+                last_counter = 0;
+            }
         }
-        SimulationResult {
+        history.push((step as u32, self.actions.clone()));
+        RunResult {
             history,
+            converged,
         }
     }
 }
