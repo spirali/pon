@@ -24,9 +24,16 @@ pub(crate) struct Simulation<'a, P: Process> {
     actions: Vec<Action>,
 }
 
+pub(crate) enum EndReason {
+    Converged,
+    MeanCheck,
+    MaxStepsReached,
+}
+
 pub(crate) struct RunResult {
     pub history: Vec<(u32, Vec<Action>)>,
-    pub converged: bool,
+    pub means: Vec<f32>,
+    pub end_reason: EndReason,
 }
 
 pub(crate) struct RunConfig {
@@ -66,31 +73,50 @@ impl<'a, P: Process> Simulation<'a, P> {
 
     pub fn run(&mut self, rng: impl Rng, config: &RunConfig) -> RunResult {
         const LAST_CHECK: usize = 10;
+        const BOOSTRAP: usize = 500;
+        const MEAN_CHECK_WINDOW: usize = 64;
+        const MEAN_CHECK_THRESHOLD: f32 = 0.0001;
+
         let mut small_rng = SmallRng::from_rng(rng).unwrap();
         let mut history = Vec::new();
+        let mut means = Vec::new();
         let mut step = 0;
         let mut last_counter = 0;
-        let mut converged = false;
-        for _ in 0..config.max_steps {
+        let mut end_reason = EndReason::MaxStepsReached;
+
+        for i in 0..config.max_steps {
             if (step % config.store_steps == 0) {
                 history.push((step as u32, self.actions.clone()))
             }
             step += 1;
             let last = self.step(&mut small_rng);
+
+            means.push(last.iter().sum::<Action>() as f32 / last.len() as f32);
+
             if last == self.actions {
                 last_counter += 1;
                 if last_counter >= LAST_CHECK {
-                    converged = true;
+                    end_reason = EndReason::Converged;
                     break;
                 }
             } else {
                 last_counter = 0;
             }
+
+            if i > BOOSTRAP {
+                let window1 = &means[means.len() - 2 * MEAN_CHECK_WINDOW..];
+                let window2 = &means[means.len() - MEAN_CHECK_WINDOW..];
+                if (window1.iter().sum::<f32>() / window1.len() as f32) - (window2.iter().sum::<f32>() / window2.len() as f32).abs() < MEAN_CHECK_THRESHOLD {
+                    end_reason = EndReason::MeanCheck;
+                    break
+                }
+            }
         }
         history.push((step as u32, self.actions.clone()));
         RunResult {
             history,
-            converged,
+            means,
+            end_reason,
         }
     }
 }

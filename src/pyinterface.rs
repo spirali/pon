@@ -8,7 +8,7 @@ use pyo3::exceptions::PyException;
 use pyo3::types::PyDict;
 use rand::{Rng, thread_rng};
 use crate::matrixgame::MatrixGame;
-use crate::simulation::{RunConfig, SimGraph, Simulation, RunResult};
+use crate::simulation::{RunConfig, SimGraph, Simulation, RunResult, EndReason};
 
 #[pyclass]
 #[derive(Clone)]
@@ -72,18 +72,36 @@ fn run_matrix_game(payoff_matrix: [[f32; 2]; 2], graphs: Vec<Graph>, config: PyR
         }
     }
 
-    let results: Vec<(usize, RunResult)> = work.iter().progress_count(work.len() as u64).map(|(graph_idx, graph)| {
+    if work.is_empty() {
+        return Ok(Vec::new())
+    }
+
+    let step = ((work.len() - 1) / 20) + 1;
+    let mut next_step = step;
+    let results: Vec<(usize, RunResult)> = work.iter().progress_count(work.len() as u64).enumerate().map(|(i, (graph_idx, graph))| {
+        if i >= next_step {
+            log::info!("Processed {}/{}", i + 1, work.len());
+            next_step += step;
+        }
+        log::debug!("Processing {}", graph_idx);
         let mut simulation = Simulation::new(graph, &process, || rng.gen_range(0..2));
         let sim_result = simulation.run(&mut rng, &config);
         (*graph_idx, sim_result)
     }).collect();
+
+    log::info!("Computation finished");
 
     Python::with_gil(|py| {
         Ok(results.into_iter().map(|(graph_idx, r)| {
                 let mut dict = PyDict::new_bound(py);
                 dict.set_item("graph_idx", graph_idx)?;
                 dict.set_item("history", r.history)?;
-                dict.set_item("converged", r.converged)?;
+                dict.set_item("means", r.means)?;
+                dict.set_item("end_reason", match r.end_reason {
+                    EndReason::Converged => 0,
+                    EndReason::MeanCheck => 1,
+                    EndReason::MaxStepsReached => 2,
+                })?;
                 PyResult::Ok(dict.to_object(py))
         }).collect::<PyResult<Vec<_>>>()?)
     })
@@ -92,6 +110,7 @@ fn run_matrix_game(payoff_matrix: [[f32; 2]; 2], graphs: Vec<Graph>, config: PyR
 /// A Python module implemented in Rust.
 #[pymodule]
 fn ponx(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    pyo3_log::init();
     m.add_class::<Graph>()?;
     m.add_function(wrap_pyfunction!(run_matrix_game, m)?)?;
     Ok(())

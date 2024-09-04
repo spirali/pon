@@ -9,8 +9,15 @@ name = "ponx"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.22.0"
-petgraph = "0.6.5"
+pyo3 = "0.22"
+petgraph = "0.6"
 rand = { version = "0.8.5", features = ["small_rng"] }
-approx = "0.5.1"
-indicatif = "0.17.8"
+approx = "0.5"
+indicatif = "0.17"
+log = "0.4"
+pyo3-log = "0.11.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
