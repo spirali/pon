@@ -85,7 +85,7 @@ impl<'a, P: Process> Simulation<'a, P> {
         let mut end_reason = EndReason::MaxStepsReached;
 
         for i in 0..config.max_steps {
-            if (step % config.store_steps == 0) {
+            if config.store_steps > 0 && step % config.store_steps == 0 {
                 history.push((step as u32, self.actions.clone()))
             }
             step += 1;
